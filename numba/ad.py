@@ -109,6 +109,18 @@ class FrameVM(object):
             self.watcher.svars[id(r)] = s1 * s2
             #print 'mul sym', id(r)
 
+    def op_BINARY_POWER(self, i, op, arg):
+        arg2 = self.stack.pop(-1)
+        arg1 = self.stack.pop(-1)
+        r = arg1 ** arg2
+        self.stack.append(r)
+        if (id(arg1) in self.watcher.svars 
+                or id(arg2) in self.watcher.svars):
+            s1 = self.watcher.svars.get(id(arg1), arg1)
+            s2 = self.watcher.svars.get(id(arg2), arg2)
+            self.watcher.svars[id(r)] = s1 ** s2
+            #print 'mul sym', id(r)
+
     def op_CALL_FUNCTION(self, i, op, arg):
         # XXX: does this work with kwargs?
         args = [self.stack[-ii] for ii in range(arg, 0, -1)]
@@ -117,8 +129,12 @@ class FrameVM(object):
         func = self.stack.pop(-1)
         recurse = True
 
-        if func.__module__ and func.__module__.startswith('numpy'):
+        if (getattr(func, '__module__', None)
+                and func.__module__.startswith('numpy')):
             recurse = False
+        elif isinstance(func, np.ufunc):
+            recurse = False
+
         if 'built-in' in str(func):
             recurse = False
 
@@ -132,8 +148,13 @@ class FrameVM(object):
                 sargs = [self.watcher.svars.get(id(a), a)
                         for a in args]
                 if func.__name__ == 'sum':
-                    #print 'sym sum', sargs
                     self.watcher.svars[id(rval)] = theano.tensor.sum(*sargs)
+                elif func.__name__ == 'dot':
+                    self.watcher.svars[id(rval)] = theano.tensor.dot(*sargs)
+                elif func.__name__ == 'mean':
+                    self.watcher.svars[id(rval)] = theano.tensor.mean(*sargs)
+                elif func.__name__ == 'maximum':
+                    self.watcher.svars[id(rval)] = theano.tensor.maximum(*sargs)
                 else:
                     raise NotImplementedError(func)
         self.stack.append(rval)
@@ -179,20 +200,41 @@ class FrameVM(object):
 
     def op_LOAD_GLOBAL(self, i, op, arg):
         #print 'LOAD_GLOBAL', self.names[arg]
-        self.stack.append(self._myglobals[self.names[arg]])
+        tos = self._myglobals[self.names[arg]]
+        self.stack.append(tos)
+        if (isinstance(tos, np.ndarray)
+                and id(tos) not in self.watcher.svars):
+            raise NotImplementedError()
 
     def op_LOAD_ATTR(self, i, op, arg):
         #print 'LOAD_ATTR', self.names[arg]
         TOS = self.stack[-1]
         self.stack[-1] = getattr(TOS, self.names[arg])
+        tos = self.stack[-1]
+        if (isinstance(tos, np.ndarray)
+                and id(tos) not in self.watcher.svars):
+            raise NotImplementedError()
 
     def op_LOAD_CONST(self, i, op, arg):
         #print 'LOAD_CONST', self.constants[arg]
         self.stack.append(self.constants[arg])
+        tos = self.stack[-1]
+        if (isinstance(tos, np.ndarray)
+                and id(tos) not in self.watcher.svars):
+            raise NotImplementedError()
 
     def op_LOAD_FAST(self, i, op, arg):
         #print 'LOAD_FAST', self.varnames[arg]
-        self.stack.append(self._locals[arg])
+        tos = self._locals[arg]
+        self.stack.append(tos)
+        if (isinstance(tos, np.ndarray)
+                and id(tos) not in self.watcher.svars):
+            if tos.dtype == bool:
+                print >> sys.stderr, "Warning: Theano has no bool, upgrading to uint8"
+                s_tos = theano.shared(tos.astype('uint8'), borrow=False)
+            else:
+                s_tos = theano.shared(tos, borrow=False)
+            self.watcher.svars[id(tos)] = s_tos
 
     def op_POP_BLOCK(self, i, op, arg):
         print 'pop block, what to do?'
@@ -226,14 +268,11 @@ class FrameVM(object):
         self.rval = self.stack.pop(-1)
 
 
-class Watcher(object):
-    def __init__(self, inputs):
-        self.inputs = inputs
+class Context(object):
+    def __init__(self):
         self.svars = {}
-        for var in inputs:
-            self.svars[id(var)] = theano.tensor.vector()
 
-    def call(self, fn, *args, **kwargs):
+    def call(self, fn, args=(), kwargs={}):
         vm = FrameVM(self, fn)
         return vm.call(args, kwargs)
 
@@ -247,3 +286,55 @@ class Watcher(object):
         sy = self.svars[id(rval)]
         sx = self.svars[id(ival)]
         return theano.function([sx], sy)
+
+    def fmin(self, cost, wrt, algo):
+        """
+        cost: a scalar that is known to this context e.g. by being a return
+              value of a previous self.call
+
+        wrt: a list of numpy ndarrays from which the `cost` was computed
+
+        algo: choose the optimization algorithm with (fmin, kwargs) tuple.
+            In future: require cost to be differentiable with respect to all
+            elements of `wrt` and optimize using fmin_l_bfgs_b
+
+        """
+
+        orig_s_wrt = [self.svars[id(w)] for w in wrt]
+        wrt_shapes = [w.shape for w in wrt]
+        wrt_sizes = [w.size for w in wrt]
+        x_size = sum(wrt_sizes)
+        x = np.empty(x_size)
+        s_x = theano.tensor.vector(dtype=x.dtype)
+        s_wrt = []
+        i = 0
+        for w in wrt:
+            x[i: i + w.size] = w.flatten()
+            if w.shape:
+                s_wrt.append(s_x[i: i + w.size].reshape(w.shape))
+            else:
+                s_wrt.append(s_x[i])
+            i += w.size
+
+        orig_s_cost = self.svars[id(cost)]
+        memo = theano.gof.graph.clone_get_equiv(
+                theano.gof.graph.inputs([orig_s_cost]),
+                [orig_s_cost],
+                memo=dict(zip(orig_s_wrt, s_wrt)))
+        s_cost = memo[orig_s_cost]
+
+        g_x = theano.tensor.grad(s_cost, s_x)
+
+        f_df = theano.function([s_x], [s_cost, g_x])
+
+        fmin, fmin_kwargs = algo
+        x_opt, mincost, info_dct = fmin(f_df, x, **fmin_kwargs)
+
+        rval = []
+        i = 0
+        for w in wrt:
+            rval.append(x_opt[i: i + w.size].reshape(w.shape))
+            i += w.size
+        return rval, mincost, info_dct
+
+
