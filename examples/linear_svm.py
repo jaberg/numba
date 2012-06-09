@@ -1,7 +1,12 @@
 """
+Linear SVM
+==========
 
-This example illustrates what's possible at the top-level with numba JIT and
-symbolic analysis.
+This example illustrates how a function defined purely by numpy operations can
+be minimized directly with a gradient-based solver.
+
+This example is a linear classifier (support vector machine) applied to random
+data.
 
 """
 
