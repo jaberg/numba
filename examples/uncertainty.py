@@ -34,5 +34,13 @@ def main():
             {'r0': r0, 'r1': r1},
             given=[(x, 1, 0.1)])
 
+def main_option2():
+    ctxt = numba.Context()
+    x = np.zeros(())
+    uncertainties = {id(x): 0.1}
+    r0, r1 = numba.call_w_uncertainty(model, (x,),
+            deltas=[(x, 0.1)])
+    print uncertainties
+
 if __name__ == '__main__':
     sys.exit(main())
