@@ -1,0 +1,4 @@
+
+build/
+numba/_ext.so
+*.pyc

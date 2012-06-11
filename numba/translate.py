@@ -247,11 +247,13 @@ class Translate(object):
         self.blocks = {0:entry}
         self.stack = []
 
-    def translate(self):
+    def translate(self, verbose=False):
         """Translate the function
         """
         for i, op, arg in itercode(self.costr):
             name = opcode.opname[op]
+            if verbose:
+                print 'itercode:', name, i, op, arg
             # Change the builder if the line-number 
             # is in the list of blocks. 
             if i in self.blocks.keys():
@@ -391,7 +393,6 @@ class Translate(object):
         res = self.builder.call(func, args)
         self.stack.append(Variable(res))
         
-
     def op_RETURN_VALUE(self, i, op, arg):
         val = self.stack.pop(-1)
         if val.val is None:
@@ -402,7 +403,6 @@ class Translate(object):
         if i+1 < len(self.costr) and i+1 not in self.blocks.keys():
             blk = self.lfunc.append_basic_block("RETURN_%d" % i)
             self.blocks[i+1] = blk
-
 
     def op_COMPARE_OP(self, i, op, arg):
         cmpop = opcode.cmp_op[arg]
@@ -417,16 +417,25 @@ class Translate(object):
                                     arg1, arg2)
         self.stack.append(Variable(res))
 
-    def op_POP_JUMP_IF_FALSE(self, i, op, arg):
+    def op_POP_JUMP_IF_FALSE(self, i, op, arg, pop=True):
         # We need to create two blocks.
         #  One for the next instruction (just past the jump)
         #  and another for the block to be jumped to.
-        cont = self.lfunc.append_basic_block("CONT_%d"% i )
+        cont = self.lfunc.append_basic_block("CONT_%d" % i )
         if_false = self.lfunc.append_basic_block("IF_FALSE_%d" % i)
-        self.blocks[i+3]=cont
-        self.blocks[arg]=if_false
-        arg1 = self.stack.pop(-1)
+        self.blocks[i + 3] = cont
+        self.blocks[arg] = if_false
+        if pop:
+            arg1 = self.stack.pop(-1)
+        else:
+            arg1 = self.stack[-1]
         self.builder.cbranch(arg1.llvm(), cont, if_false)
+
+    def op_JUMP_IF_FALSE(self, i, op, arg):
+        return self.op_POP_JUMP_IF_FALSE(i, op, arg, pop=False)
+
+    def op_POP_TOP(self, i, op, arg):
+        self.stack.pop(-1)
 
     def op_CALL_FUNCTION(self, i, op, arg):
         # number of arguments is arg

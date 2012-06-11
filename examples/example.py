@@ -3,14 +3,18 @@ from numba.decorators import vectorize
 
 #@vectorize
 def sinc(x):
-    if x==0.0:
-        return 1.0
+    rval = None
+    if x == 0.0:
+        rval = 1.0
     else:
-        return sin(x*pi)/(pi*x)
+        rval = sin(x * pi) / (pi * x)
+    print rval
+    return rval
+
 
 from numba.translate import Translate
 t = Translate(sinc)
-t.translate()
+t.translate(verbose=True)
 print t.mod
 sinc = t.make_ufunc()
 

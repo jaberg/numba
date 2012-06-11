@@ -14,7 +14,7 @@ http://pymc-devs.github.com/pymc/README.html#purpose
 
 import numpy as np
 import matplotlib.pyplot as plt
-import numba
+from numba import rv
 
 
 def model(n, x):
@@ -24,38 +24,29 @@ def model(n, x):
     beta = np.random.normal(loc=0, scale=0.01)
     theta = 1.0 / (1.0 + np.exp(-(a + b * x)))
     data = np.random.binomial(n=n, p=theta)
-    return alpha, beta, data
+    return locals()
 
 
 def main():
-    # Create some fake data
-    n = np.array([5, 5, 5, 5])
-    x = np.array([-0.86, -0.3, -0.05, 0.73])
+    def specialized():
+        d = model(
+            # Create some fake data
+            np.array([5, 5, 5, 5]),
+            np.array([-0.86, -0.3, -0.05, 0.73]))
+        # tell rv.eval what posteriors we care about
+        return dict(
+                alpha=d['alpha'],
+                beta=d['beta'],
+                data=d['data'])
 
-    # Create a model (by allowing numba to trace execution)
-    ctxt = numba.Context()
-    alpha, beta, data = ctxt.call(model, (n, x))
+    samples = rv.mcmc(specialized,
+            given={'data': [0.,1.,3.,5.]})
 
-    posterior = numba.sample(
-            # tell sampler what variables to return
-            {'alpha': alpha, 'beta': beta},
-            # communicate conditioning data for sampler
-            given=[(data, [0.,1.,3.,5.])],
-            # MCMC parameters
-            iter=10000,
-            burn=5000,
-            thin=2,
-            # tell sampler how data relates to alpha, beta
-            ctxt=ctxt,
-            # initialize sampler
-            rseed=1,
-            )
-
-    plt.scatter(posterior['alpha'], posterior['beta'])
+    plt.scatter(samples['alpha'], samples['beta'])
     plt.show()
 
 
 if __name__ == '__main__':
+    np.random.seed(1)
     sys.exit(main())
-
 

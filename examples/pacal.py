@@ -13,7 +13,7 @@ http://pacal.sourceforge.net/
 """
 
 import numpy as np
-from numba import Context
+from numba import rv
 
 
 def model():
@@ -25,11 +25,10 @@ def model():
 
 
 def main():
-    ctxt = Context()
-    K = ctxt.call(model)
-    counts = numba.hist(K, n=1000, ctxt=ctxt, rseed=1)
-    plt.plot(counts)
-    plt.show()
+    v = rv.eval(model)
+    print v.mean()
+    print v.cdf(10)
+    print v.pdf(0.2)
 
 
 if __name__ == '__main__':

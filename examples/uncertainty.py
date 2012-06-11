@@ -22,25 +22,19 @@ The original is quite short and elegant:
 """
 
 import numpy as np
+from numba import rv
 
-def model(x):
+
+def model(x, xvar):
+    x = np.random.normal(loc=x, scale=np.sqrt(xvar))
     return 2 * x, np.sin(2 * x)
 
-def main():
-    ctxt = numba.Context()
-    x = np.zeros(())
-    r0, r1 = ctxt.call(model, (x,))
-    print numba.uncertainty(
-            {'r0': r0, 'r1': r1},
-            given=[(x, 1, 0.1)])
 
-def main_option2():
-    ctxt = numba.Context()
-    x = np.zeros(())
-    uncertainties = {id(x): 0.1}
-    r0, r1 = numba.call_w_uncertainty(model, (x,),
-            deltas=[(x, 0.1)])
-    print uncertainties
+def main():
+    a, b = rv.eval(model, (1, .1))
+    print a.mean(), b.variance()
+    print b.mean, b.variance()
+
 
 if __name__ == '__main__':
     sys.exit(main())

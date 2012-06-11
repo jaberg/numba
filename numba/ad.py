@@ -24,6 +24,8 @@ from .utils import itercode
 # XXX: support full calling convention for named args, *args and **kwargs
 
 
+# XXX: this is a crutch to the proof of concept, not meant to be part of the
+# proposed API
 class FrameVM(object):
     """
     A Class for evaluating a code block of CPython bytecode,
@@ -169,7 +171,6 @@ class FrameVM(object):
         else:
             raise NotImplementedError('comparison: %s' % opname)
 
-
     def op_FOR_ITER(self, i, op, arg):
         # either push tos.next()
         # or pop tos and send (arg)
@@ -268,6 +269,8 @@ class FrameVM(object):
         self.rval = self.stack.pop(-1)
 
 
+# XXX: this is a crutch to the proof of concept, not meant to be part of the
+# proposed API
 class Context(object):
     def __init__(self):
         self.svars = {}
@@ -337,4 +340,49 @@ class Context(object):
             i += w.size
         return rval, mincost, info_dct
 
+
+def gradient(fn, args_like=None):
+    """
+    Returns a function g(*args) that will compute:
+        fn(*args), [gradient(x) for x in args]
+
+    in which gradient(x) denotes the derivative in fn(args) wrt each argument.
+
+    When `fn` returns a scalar then the gradients have the same shape as the
+    arguments.  When `fn` returns a general ndarray, then the gradients
+    have leading dimensions corresponding to the shape of the return value.
+
+    fn - a function that returns a float or ndarray
+    args_like - representative arguments, in terms of shape and dtype
+
+    """
+    # args must be all float or np.ndarray
+
+    # inspect bytecode of fn to determine derivative wrt args
+
+    # construct bytecode for f_df() that
+    # * unpacks x-> args
+    # * computes f, dx
+
+    # unpack x_opt -> args-like quantity `args_opt`
+
+def fmin(fn, args):
+    raise NotImplementedError()
+    # args must be all float or np.ndarray
+
+    # inspect bytecode of fn to determine derivative wrt args
+
+    # construct bytecode for f_df() that
+    # * unpacks x-> args
+    # * computes f, dx
+
+    # [optional] pass bytecode for g() to numba.translate to compile a faster
+    # implementation for the repeated calls that are coming up
+
+    # pass control to iterative minimizer
+    x_opt, mincost, info_dct = fmin_l_bfgs_b(f_df, x, **fmin_kwargs)
+
+    # unpack x_opt -> args-like quantity `args_opt`
+
+    return args_opt
 
